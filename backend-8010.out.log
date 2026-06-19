@@ -1,0 +1,28 @@
+INFO:     127.0.0.1:61042 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59878 - "POST /api/v1/documents/upload HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:59879 - "OPTIONS /api/v1/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52349 - "OPTIONS /api/v1/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52349 - "POST /api/v1/documents/upload HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58620 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58620 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59644 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59644 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=aG5-p0stRLWOElmZ2cEsvZctoWiXjPMB8Oc3836d_Do HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59644 - "GET /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=aG5-p0stRLWOElmZ2cEsvZctoWiXjPMB8Oc3836d_Do HTTP/1.1" 200 OK
+ INFO:     127.0.0.1:58158 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58158 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+ INFO:     127.0.0.1:55072 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50468 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50468 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=vDg6t4gPXj8GIkaU8XojqApBESRbXKJNIRqDkJca1nI HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50468 - "GET /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=vDg6t4gPXj8GIkaU8XojqApBESRbXKJNIRqDkJca1nI HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56546 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62863 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/analyze HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55892 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55892 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotate HTTP/1.1" 200 OK
+INFO:     127.0.0.1:55892 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63892 - "POST /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download-token HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63892 - "OPTIONS /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=hVBlUAt4TUxoFUT5-KoyQyWwrsVIrJBclt9EAnlNe0w HTTP/1.1" 200 OK
+INFO:     127.0.0.1:63892 - "GET /api/v1/documents/ea121a04-3746-4e04-bcda-5986ef67e0bf/annotated-download?token=hVBlUAt4TUxoFUT5-KoyQyWwrsVIrJBclt9EAnlNe0w HTTP/1.1" 200 OK
+ 

@@ -1,0 +1,17 @@
+INFO:     Will watch for changes in these directories: ['E:\\ProjectAndriod\\thesis-format-tool-pro\\services\\api']
+INFO:     Uvicorn running on http://127.0.0.1:8010 (Press CTRL+C to quit)
+INFO:     Started reloader process [15540] using WatchFiles
+INFO:     Started server process [3488]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app\services\docx_formatter\engine\vietnamese_text.py'. Reloading...
+INFO:     Shutting down
+INFO:     Waiting for connections to close. (CTRL+C to force quit)
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [3488]
+WARNING:  WatchFiles detected changes in 'app\services\docx_formatter\rules\layout_abnormal_rule.py', 'app\services\docx_formatter\analyzer.py', 'app\services\docx_formatter\engine\annotation_engine.py', 'app\services\docx_formatter\engine\report_builder.py', 'tests\docx_formatter\test_vietnamese_display.py'. Reloading...
+INFO:     Started server process [11216]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+WARNING:  WatchFiles detected changes in 'app\services\docx_formatter\config\config_loader.py'. Reloading...
