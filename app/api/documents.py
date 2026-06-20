@@ -559,11 +559,10 @@ async def download_fixed_document(
     _ensure_document_is_downloadable(document)
 
     try:
-        _ensure_fixed_file_payment_allowed(
+        _ensure_fixed_document_purchased(
             supabase,
             document_id=document_id,
             user_id=current_user.user_id,
-            error_detail="A paid order is required before downloading this document.",
         )
         token_row = _get_download_token(
             supabase,
@@ -1035,6 +1034,72 @@ def _ensure_fixed_file_payment_allowed(
         document_id=document_id,
         user_id=user_id,
         error_detail=error_detail,
+    )
+
+
+def _ensure_fixed_document_purchased(
+    supabase,
+    *,
+    document_id: str,
+    user_id: str,
+) -> None:
+    purchase = supabase.select_one(
+        "document_purchases",
+        filters={"document_id": document_id, "user_id": user_id, "status": "paid"},
+        columns="id,status,purchased_at",
+    )
+    if purchase is None:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Fixed file has not been purchased with wallet balance.",
+        )
+
+
+def _wallet_purchase_error_response(
+    document_id: str,
+    purchase_result: dict[str, Any],
+) -> JSONResponse:
+    reason = str(purchase_result.get("reason") or "wallet_purchase_failed")
+    if reason == "insufficient_funds":
+        balance_vnd = int(purchase_result.get("balance_vnd") or 0)
+        required_amount = int(purchase_result.get("required_amount") or 0)
+        deficit_vnd = int(purchase_result.get("deficit_vnd") or max(required_amount - balance_vnd, 0))
+        return JSONResponse(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            content={
+                "detail": "Số dư ví không đủ để tải file đã sửa.",
+                "reason": "insufficient_wallet_balance",
+                "balance_vnd": balance_vnd,
+                "required_amount": required_amount,
+                "deficit_vnd": deficit_vnd,
+                "topup_url": f"/topup?returnTo={quote(f'/documents/{document_id}')}",
+            },
+        )
+
+    if reason == "fixed_file_missing":
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "detail": "File đã sửa chưa được tạo.",
+                "reason": reason,
+            },
+        )
+
+    if reason == "price_not_configured":
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": "Giá tải file chưa được cấu hình.",
+                "reason": reason,
+            },
+        )
+
+    return JSONResponse(
+        status_code=status.HTTP_403_FORBIDDEN,
+        content={
+            "detail": "Không thể mua quyền tải file bằng ví.",
+            "reason": reason,
+        },
     )
 
 

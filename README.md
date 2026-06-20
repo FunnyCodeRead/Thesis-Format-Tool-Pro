@@ -42,6 +42,9 @@ POST /api/v1/documents/{document_id}/download-token
 GET /api/v1/documents/{document_id}/download?token=...
 POST /api/v1/documents/{document_id}/checkout
 GET /api/v1/documents/{document_id}/payment-status?orderCode=...
+GET /api/v1/wallet
+POST /api/v1/wallet/topup
+GET /api/v1/wallet/topup-status?orderCode=...
 POST /api/v1/payments/payos/webhook
 ```
 
@@ -105,7 +108,7 @@ POST /api/v1/documents/{document_id}/annotated-report
 GET /api/v1/documents/{document_id}/annotated-report/download
 ```
 
-`POST /api/v1/documents/{document_id}/fix` requires the same authorization header. When `FIXED_FILE_PAYMENT_REQUIRED=true`, it also requires a paid order for the document. It downloads the original file from R2, writes a separate clean fixed `.docx`, strips comments/highlights from the output, verifies visible text did not change, uploads `fixed.docx` to R2, saves `fixed_file_key` and `fixed_at`, and updates document status to `fixed`.
+`POST /api/v1/documents/{document_id}/fix` requires the same authorization header and document ownership. It does not charge the user. It downloads the original file from R2, writes a separate clean fixed `.docx`, strips comments/highlights from the output, verifies visible text did not change, uploads `fixed.docx` to R2, saves `fixed_file_key` and `fixed_at`, and updates document status to `fixed`.
 
 By default, `/fix` runs `fix_mode=safe_all` for every safe formatting group. Clients may narrow the run with:
 
@@ -124,11 +127,17 @@ Expanded safe fixing is intentionally narrow. Table structure/width, image layou
 
 Style-level fixing uses `style_fix_mode=conservative_exclusive_style`: the backend updates a paragraph style only when that style is used exclusively by one safe context such as body paragraphs, list items, captions, or headings. If a style is shared with cover pages, TOC, front matter, tables, header/footer, or unknown content, style-level fixing is skipped and the paragraph-level safe fixer remains the fallback.
 
-`POST /api/v1/documents/{document_id}/download-token` requires the same authorization header. When `FIXED_FILE_PAYMENT_REQUIRED=true`, it also requires a paid order. It creates a short-lived one-time token with `kind=fixed` and stores only `token_hash` in Supabase.
+`POST /api/v1/documents/{document_id}/download-token` requires the same authorization header, document ownership, and an existing fixed file. This is the fixed-file charge point: the backend calls `purchase_document_with_wallet`. If the document was already purchased, it creates a new token without charging again. If the wallet balance is insufficient, it returns HTTP 402 with `reason=insufficient_wallet_balance`, `balance_vnd`, `required_amount`, `deficit_vnd`, and `topup_url`. On success it creates a short-lived one-time token with `kind=fixed` and stores only `token_hash` in Supabase.
 
-`GET /api/v1/documents/{document_id}/download?token=...` requires the same authorization header. It validates ownership, token hash, expiry, and usage state, and when `FIXED_FILE_PAYMENT_REQUIRED=true` it also validates a paid order, then returns the fixed `.docx` as an attachment.
+`GET /api/v1/documents/{document_id}/download?token=...` requires the same authorization header. It validates ownership, existing wallet purchase, token hash, expiry, and usage state, then returns the fixed `.docx` as an attachment.
 
-`POST /api/v1/documents/{document_id}/checkout` requires the same authorization header. The backend reads `document_templates.price_vnd`, creates a pending order, calls payOS, and returns `checkout_url` plus `qr_code`.
+`GET /api/v1/wallet` returns the current user's wallet balance.
+
+`POST /api/v1/wallet/topup` creates a `wallet_topups` row, calls payOS, and returns a checkout URL/QR for adding funds to the wallet. The optional `return_to` field must be a relative path beginning with `/`.
+
+`GET /api/v1/wallet/topup-status?orderCode=...` reconciles a wallet top-up against payOS and returns the latest top-up status.
+
+`POST /api/v1/documents/{document_id}/checkout` remains as a legacy/backward-compatible per-document checkout endpoint. The frontend fixed-file flow no longer calls it.
 
 An unexpired pending checkout is reused instead of creating multiple open payOS
 orders for the same document.
@@ -139,7 +148,9 @@ for the frontend return flow.
 
 `POST /api/v1/payments/payos/webhook` is called by payOS. It verifies `signature`
 with `PAYOS_CHECKSUM_KEY`, validates amount/currency, deduplicates repeated
-events, and marks the matching order as `paid`. A paid order is never downgraded.
+events, and first tries to match a legacy document order. If no order exists,
+it matches `wallet_topups` by `provider_order_code` and calls
+`credit_wallet_topup` for paid top-ups. A paid order/top-up is never downgraded.
 
 Payment routes require `PAYOS_CLIENT_ID`, `PAYOS_API_KEY`, `PAYOS_CHECKSUM_KEY`, and `APP_PUBLIC_BASE_URL`.
 

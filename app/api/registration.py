@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     HTTPException,
     Request,
     status,
@@ -19,6 +22,7 @@ from app.schemas.registration import (
 )
 from app.services.auth.registration_guard import (
     RegistrationGuardUnavailable,
+    RegistrationLimitResult,
     get_registration_guard,
 )
 from app.services.auth.supabase_registration import (
@@ -43,7 +47,10 @@ logger = logging.getLogger(__name__)
 async def register(
     body: RegisterRequest,
     request: Request,
+    background_tasks: BackgroundTasks,
 ) -> RegisterResponse:
+    started_at = perf_counter()
+
     email = str(body.email).strip().casefold()
     password = body.password.get_secret_value()
 
@@ -62,37 +69,61 @@ async def register(
     ip_hash = _secure_hash(client_ip)
 
     guard = get_registration_guard()
-
-    try:
-        await _enforce_rate_limit(
-            key=f"registration:ip:{ip_hash}",
-            limit=settings.registration_ip_limit,
-            window_seconds=(
-                settings.registration_ip_window_seconds
-            ),
-        )
-
-        await _enforce_rate_limit(
-            key=f"registration:email:{email_hash}",
-            limit=settings.registration_email_limit,
-            window_seconds=(
-                settings.registration_email_window_seconds
-            ),
-        )
-    except RegistrationGuardUnavailable as exc:
-        raise _registration_security_unavailable() from exc
-
     gateway = SupabaseRegistrationGateway()
 
     result = "failed"
     lock_token: str | None = None
 
     try:
-        # Kiểm tra trạng thái email trước khi lấy khóa Redis.
-        email_state = await gateway.get_email_state(email)
+        # Chạy rate limit và tra trạng thái email đồng thời.
+        limit_outcome, email_state_outcome = (
+            await asyncio.gather(
+                guard.consume_registration_limits(
+                    ip_key=(
+                        f"registration:ip:{ip_hash}"
+                    ),
+                    email_key=(
+                        "registration:email:"
+                        f"{email_hash}"
+                    ),
+                    ip_limit=(
+                        settings.registration_ip_limit
+                    ),
+                    email_limit=(
+                        settings
+                        .registration_email_limit
+                    ),
+                    ip_window_seconds=(
+                        settings
+                        .registration_ip_window_seconds
+                    ),
+                    email_window_seconds=(
+                        settings
+                        .registration_email_window_seconds
+                    ),
+                ),
+                gateway.get_email_state(email),
+                return_exceptions=True,
+            )
+        )
 
-        # Email đã tồn tại thì trả lỗi đúng trạng thái.
-        # Vẫn gọi signup để Supabase xác minh CAPTCHA trước.
+        limit_result = _resolve_limit_outcome(
+            limit_outcome
+        )
+
+        # Luôn ưu tiên chặn rate limit trước khi
+        # sử dụng kết quả kiểm tra email.
+        if not limit_result.allowed:
+            result = "rate_limited"
+            raise _registration_rate_limited(
+                limit_result.retry_after
+            )
+
+        email_state = _resolve_email_state_outcome(
+            email_state_outcome
+        )
+
+        # Email đã tồn tại không cần lấy khóa.
         if email_state in {
             "registered",
             "pending_confirmation",
@@ -107,7 +138,8 @@ async def register(
                 captcha_token=body.captcha_token,
             )
 
-        # Chỉ email chưa tồn tại mới cần khóa Redis.
+        # Email mới: giữ khóa để chặn hai request
+        # cùng đăng ký một email trong một thời điểm.
         try:
             lock_token = await guard.acquire_email_lock(
                 email_hash=email_hash,
@@ -119,8 +151,7 @@ async def register(
             raise _registration_security_unavailable() from exc
 
         if lock_token is None:
-            # Có thể request khác vừa tạo tài khoản.
-            # Kiểm tra lại để tránh trả thông báo sai.
+            # Request khác có thể vừa tạo xong tài khoản.
             latest_email_state = (
                 await gateway.get_email_state(email)
             )
@@ -141,40 +172,25 @@ async def register(
                     captcha_token=body.captcha_token,
                 )
 
+            result = "in_progress"
+
             raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                headers={"Retry-After": "3"},
+                status_code=(
+                    status.HTTP_429_TOO_MANY_REQUESTS
+                ),
+                headers={
+                    "Retry-After": "3",
+                },
                 detail={
                     "code": "REGISTRATION_IN_PROGRESS",
                     "message": (
-                        "Một yêu cầu đăng ký đang được xử lý. "
-                        "Vui lòng chờ vài giây rồi thử lại."
+                        "Một yêu cầu đăng ký đang được "
+                        "xử lý. Vui lòng chờ vài giây "
+                        "rồi thử lại."
                     ),
                 },
             )
 
-        # Kiểm tra lại sau khi giữ khóa để chống race condition.
-        latest_email_state = (
-            await gateway.get_email_state(email)
-        )
-
-        if latest_email_state in {
-            "registered",
-            "pending_confirmation",
-        }:
-            result = _duplicate_result(
-                latest_email_state
-            )
-
-            await _verify_captcha_then_reject_existing_email(
-                gateway=gateway,
-                email_state=latest_email_state,
-                email=email,
-                password=password,
-                captcha_token=body.captcha_token,
-            )
-
-        # Email chưa tồn tại thì mới tạo tài khoản.
         await gateway.sign_up(
             email=email,
             password=password,
@@ -182,6 +198,15 @@ async def register(
         )
 
         result = "created"
+
+        # Trả response trước; mở khóa sau response để
+        # không bắt người dùng chờ thêm một request Upstash.
+        background_tasks.add_task(
+            guard.release_email_lock,
+            email_hash=email_hash,
+            token=lock_token,
+        )
+        lock_token = None
 
         return RegisterResponse(
             message=(
@@ -194,28 +219,95 @@ async def register(
     except HTTPException:
         raise
 
+    except RegistrationGuardUnavailable as exc:
+        result = "guard_unavailable"
+        raise _registration_security_unavailable() from exc
+
     except SupabaseRegistrationError as exc:
         result = f"supabase_error:{exc.code}"
         raise _map_supabase_error(exc) from exc
 
     finally:
+        # Khi request lỗi sau lúc đã lấy khóa,
+        # phải mở khóa ngay trước khi trả lỗi.
         if lock_token is not None:
             await guard.release_email_lock(
                 email_hash=email_hash,
                 token=lock_token,
             )
 
+        elapsed_ms = (
+            perf_counter() - started_at
+        ) * 1000
+
         logger.info(
             (
                 "registration_result "
                 "request_id=%s result=%s "
+                "duration_ms=%.1f "
                 "email_hash=%s ip_hash=%s"
             ),
             request_id,
             result,
+            elapsed_ms,
             email_hash,
             ip_hash,
         )
+
+
+def _resolve_limit_outcome(
+    outcome: object,
+) -> RegistrationLimitResult:
+    if isinstance(
+        outcome,
+        RegistrationGuardUnavailable,
+    ):
+        raise outcome
+
+    if isinstance(outcome, Exception):
+        raise RegistrationGuardUnavailable(
+            "Unexpected registration guard failure."
+        ) from outcome
+
+    if not isinstance(
+        outcome,
+        RegistrationLimitResult,
+    ):
+        raise RegistrationGuardUnavailable(
+            "Invalid registration limit result."
+        )
+
+    return outcome
+
+
+def _resolve_email_state_outcome(
+    outcome: object,
+) -> str:
+    if isinstance(
+        outcome,
+        SupabaseRegistrationError,
+    ):
+        raise outcome
+
+    if isinstance(outcome, Exception):
+        raise SupabaseRegistrationError(
+            code="supabase_unavailable",
+            message=(
+                "Unexpected Supabase email lookup failure."
+            ),
+            status_code=503,
+        ) from outcome
+
+    if not isinstance(outcome, str):
+        raise SupabaseRegistrationError(
+            code="invalid_email_state",
+            message=(
+                "Invalid Supabase email state."
+            ),
+            status_code=502,
+        )
+
+    return outcome
 
 
 def _duplicate_result(email_state: str) -> str:
@@ -270,7 +362,6 @@ async def _verify_captcha_then_reject_existing_email(
             password=password,
             captcha_token=captcha_token,
         )
-
     except SupabaseRegistrationError as exc:
         code = exc.code.lower()
 
@@ -282,32 +373,17 @@ async def _verify_captcha_then_reject_existing_email(
 
         raise _map_supabase_error(exc) from exc
 
-    # Supabase có thể che giấu email trùng và trả thành công.
-    # Backend vẫn dựa vào trạng thái đã đọc từ auth.users.
+    # Supabase có thể che giấu email trùng bằng 200.
     raise _email_state_error(email_state)
 
 
-async def _enforce_rate_limit(
-    *,
-    key: str,
-    limit: int,
-    window_seconds: int,
-) -> None:
-    guard = get_registration_guard()
-
-    result = await guard.consume(
-        key=key,
-        limit=limit,
-        window_seconds=window_seconds,
-    )
-
-    if result.allowed:
-        return
-
-    raise HTTPException(
+def _registration_rate_limited(
+    retry_after: int,
+) -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
         headers={
-            "Retry-After": str(result.retry_after),
+            "Retry-After": str(retry_after),
         },
         detail={
             "code": "REGISTRATION_RATE_LIMITED",
@@ -315,7 +391,7 @@ async def _enforce_rate_limit(
                 "Bạn đã gửi quá nhiều yêu cầu đăng ký. "
                 "Vui lòng thử lại sau."
             ),
-            "retry_after": result.retry_after,
+            "retry_after": retry_after,
         },
     )
 

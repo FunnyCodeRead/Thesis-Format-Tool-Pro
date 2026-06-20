@@ -13,3 +13,5 @@ pdfplumber==0.11.9
 httpx
 redis[hiredis]
 email-validator
+upstash-redis
+httpx[http2]
